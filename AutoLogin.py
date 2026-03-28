@@ -291,6 +291,6 @@ class AutoLogin:
 
 if __name__ == "__main__":
     # 使用示例：将日志写入文件 portal.log，控制台只显示错误
-    auth = AutoLogin(username="25721280", password="CT20011008ct@shu.com", log_file="portal.log")
+    auth = AutoLogin(username="username", password="password", log_file="portal.log")
     success, msg = auth.login()
     print(msg)  # 控制台仅输出最终结果
