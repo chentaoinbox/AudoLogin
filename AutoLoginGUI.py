@@ -93,6 +93,9 @@ class LoginGUI:
         self.interval_var = tk.StringVar(value="30")
         self.interval_entry = ttk.Entry(inner_frame, width=6, textvariable=self.interval_var, state='normal')
         self.interval_entry.pack(side='left', padx=(10, 5))
+        self.interval_entry.bind('<KeyRelease>', self.on_interval_change)
+        self.interval_entry.bind('<FocusOut>', self.on_interval_change)
+        self.interval_entry.bind('<Return>', self.on_interval_change)
 
         ttk.Label(inner_frame, text="分钟").pack(side='left')
         self.next_run_label = ttk.Label(inner_frame, text="", foreground='#666666')
@@ -101,6 +104,8 @@ class LoginGUI:
         # 登录按钮
         self.login_btn = ttk.Button(main_frame, text="登 录", command=self.start_login, width=20)
         self.login_btn.pack(pady=15)
+        self.reload_btn = ttk.Button(main_frame, text="重载配置", command=self.reload_config, width=20)
+        self.reload_btn.pack(pady=(0, 10))
 
         # 状态栏
         self.status_var = tk.StringVar()
@@ -194,6 +199,25 @@ class LoginGUI:
             self.disable_schedule()
         self.save_config()
 
+    def on_interval_change(self, event=None):
+        try:
+            minutes = float(self.interval_var.get())
+            if minutes <= 0:
+                raise ValueError
+        except:
+            if self.schedule_enabled:
+                self.next_run_label.config(text="下次运行: 间隔无效")
+            return
+
+        if self.schedule_enabled:
+            self.schedule_login()
+        self.save_config()
+
+    def reload_config(self):
+        self.load_config()
+        self._update_auth_instance()
+        self.update_status("已重载配置文件", None)
+
     def enable_schedule(self):
         self.schedule_enabled = True
         self.interval_entry.config(state='normal')
@@ -222,9 +246,11 @@ class LoginGUI:
             self.root.after_cancel(self.scheduled_id)
             self.scheduled_id = None
 
-        # 对齐到“绝对时间刻度”，尽量在 xx:xx:00.000 这类边界触发
+        # 目标为“秒可变、毫秒固定”: 触发时间统一落在 *.000
         now_ms = time.time_ns() // 1_000_000
-        next_run_ms = ((now_ms // interval_ms) + 1) * interval_ms
+        next_run_ms = now_ms + interval_ms
+        if next_run_ms % 1000 != 0:
+            next_run_ms = ((next_run_ms // 1000) + 1) * 1000
         delay_ms = max(1, next_run_ms - now_ms)
         next_time = datetime.datetime.fromtimestamp(next_run_ms / 1000)
         self.next_run_label.config(text=f"下次运行: {next_time.strftime('%H:%M:%S')}")
@@ -243,7 +269,6 @@ class LoginGUI:
         self.last_auto_run_minute = minute_key
 
         self.start_login()
-        self.schedule_login()
 
     def on_closing(self):
         self.disable_schedule()
@@ -253,7 +278,11 @@ class LoginGUI:
     def start_login(self):
         if self.is_logging_in:
             self.update_status("登录任务正在执行中，请稍后重试", False)
+            if self.schedule_enabled:
+                self.schedule_login()
             return
+        if self.schedule_enabled:
+            self.schedule_login()
         if not self.auth:
             self._update_auth_instance()
             if not self.auth:
