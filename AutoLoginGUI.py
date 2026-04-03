@@ -36,6 +36,7 @@ class LoginGUI:
         self.is_logging_in = False
         self.scheduled_id = None
         self.schedule_enabled = False
+        self.last_auto_run_minute = None
         self.auth = None
 
         if os.path.exists(icon_path):
@@ -215,14 +216,32 @@ class LoginGUI:
             interval_ms = int(minutes * 60 * 1000)
         except:
             interval_ms = 30 * 60 * 1000
-        next_time = datetime.datetime.now() + datetime.timedelta(milliseconds=interval_ms)
+
+        # 先取消旧任务，避免重复排程导致短时间内多次自动触发
+        if self.scheduled_id:
+            self.root.after_cancel(self.scheduled_id)
+            self.scheduled_id = None
+
+        # 对齐到“绝对时间刻度”，尽量在 xx:xx:00.000 这类边界触发
+        now_ms = time.time_ns() // 1_000_000
+        next_run_ms = ((now_ms // interval_ms) + 1) * interval_ms
+        delay_ms = max(1, next_run_ms - now_ms)
+        next_time = datetime.datetime.fromtimestamp(next_run_ms / 1000)
         self.next_run_label.config(text=f"下次运行: {next_time.strftime('%H:%M:%S')}")
-        self.scheduled_id = self.root.after(interval_ms, self.scheduled_login_callback)
+        self.scheduled_id = self.root.after(delay_ms, self.scheduled_login_callback)
 
     def scheduled_login_callback(self):
         if not self.schedule_enabled:
             return
         self.scheduled_id = None
+
+        # 防止在同一分钟内重复自动启动
+        minute_key = datetime.datetime.now().strftime('%Y%m%d%H%M')
+        if self.last_auto_run_minute == minute_key:
+            self.schedule_login()
+            return
+        self.last_auto_run_minute = minute_key
+
         self.start_login()
         self.schedule_login()
 
@@ -280,8 +299,6 @@ class LoginGUI:
             self.root.after(0, lambda: self.login_btn.config(state=tk.NORMAL))
         finally:
             self.is_logging_in = False
-            if self.schedule_enabled:
-                self.root.after(0, self.schedule_login)
 
     def update_status(self, message, success):
         def _update():
